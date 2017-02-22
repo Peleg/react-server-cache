@@ -1,7 +1,10 @@
+// TODO: ?
 delete require.cache[require.resolve('react-dom/lib/ReactCompositeComponent')];
+
 const ReactCompositeComponent = require('react-dom/lib/ReactCompositeComponent');
 const DOMPropertyOperations = require('react-dom/lib/DOMPropertyOperations');
 const assert = require('assert');
+const ExecutionEnvironment = require('exenv');
 const _ = require('lodash');
 
 let isEnabled = false;
@@ -29,6 +32,15 @@ module.exports.enable = function enable() {
 
 module.exports.disable = function disable() {
   isEnabled = false;
+};
+
+// must call rewind after rendering on server (in same tick). otherwise we got a mem leak.
+// TODO: find a better interface for this?
+let cachePromises = [];
+module.exports.rewind = function rewind() {
+  const _cahcePromises = cachePromises;
+  cachePromises = [];
+  return _cachePromises;
 };
 
 module.exports.setStore = function setStore(store) {
@@ -77,14 +89,13 @@ ReactCompositeComponent.mountComponent = function mountComponentFromCache(transa
     return _originalMountComponent.apply(this, arguments);
   }
 
-  const cacheKeyFn = currentElement.cacheKeyFn || JSON.stringify;
-  const key = `${currentName}:${cacheKeyFn(currentProps)}`; // TODO: hash
+  const key = `${currentName}:${currentElement.cacheKeyFn(currentProps)}`; // TODO: hash
+
   cachePromises.push(cacheStore.get(key)
     .catch((e) => {
       transaction._cached = currentName; // so we dont cache children separately
       hostContainerInfo._idCounter = 1; // real react-id will have to be determined when cache is fetched
 
-      // real mount
       const html = _originalMountComponent.apply(this, arguments);
 
       transaction._cached = undefined;
@@ -107,4 +118,32 @@ ReactCompositeComponent.mountComponent = function mountComponentFromCache(transa
   );
 
   return `<!-- cache:${key} -->`
+};
+
+function getDisplayName(WrappedComponent) {
+  return WrappedComponent.displayName || WrappedComponent.name || 'Component';
+}
+
+module.exports.cachedComponent = (cacheKeyFn) => {
+  return (WrappedComponent) => {
+    if (ExecutionEnvironment.canUseDOM) {
+      return WrappedComponent;
+    }
+
+    return class CachedComponent extends Component {
+      static displayName = `CachedComponent(${getDisplayName(WrappedComponent)})`;
+
+      setState = function cachedComponentSetState(partialState) {
+        return Object.assign({}, this.state, partialState);
+      };
+
+      cacheKeyFn = cacheKeyFn || JSON.stringify;
+
+      canCache = true;
+
+      render() {
+        return <WrappedComponent { ...this.props } />;
+      }
+    }
+  };
 };
