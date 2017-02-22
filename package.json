@@ -1,0 +1,32 @@
+{
+  "name": "react-server-cache",
+  "version": "1.0.0",
+  "description": "cache react components on the server",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peleg/react-server-cache.git"
+  },
+  "keywords": [
+    "react",
+    "server",
+    "cache",
+    "memcache",
+    "redis",
+    "async"
+  ],
+  "author": "Peleg Rosenthal",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/peleg/react-server-cache/issues"
+  },
+  "homepage": "https://github.com/peleg/react-server-cache#readme",
+  "devDependencies": {
+    "memcached": "^2.2.2",
+    "react": "^15.4.2",
+    "react-dom": "^15.4.2"
+  }
+}
