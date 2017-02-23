@@ -1,6 +1,9 @@
 const assert = require('assert');
 const _ = require('lodash');
+const crypto = require('crypto');
+const CacheStore = require('./stores/MemoryCacheStore');
 const MemoryCacheStore = require('./stores/MemoryCacheStore');
+const Component = require('react').Component;
 
 assert(
   !require.cache[require.resolve('react-dom/server')],
@@ -16,24 +19,31 @@ const ReactCompositeComponent = require('react-dom/lib/ReactCompositeComponent')
 const DOMPropertyOperations = require('react-dom/lib/DOMPropertyOperations');
 const ReactMarkupChecksum = require('react-dom/lib/ReactMarkupChecksum');
 
-let isEnabled = false;
-let cacheStore = new MemoryCacheStore();
-let cachePromises = [];
+const REACT_ID_REPLACE_REGEX = /(data-reactid="|react-text: )[0-9]*/g;
+const REACT_CHECKSUM_REPLACE_REGEX = / data-react-checksum=".+?"/;
 
-function enable() {
+let isEnabled = false;
+let cachePromises = [];
+let cacheStore;
+
+function setStore(store) {
+  assert(store instanceof CacheStore, 'Cache store must be an instance of CacheStore');
+  cacheStore = store;
+}
+
+function enableCache(store) {
   assert(
     process.env.NODE_ENV === 'production',
     'React-Server-Cache must run in NODE_ENV production only'
   );
+  setStore(store || new MemoryCacheStore());
   isEnabled = true;
 }
 
-function disable() {
+function disableCache() {
+  cachePromises = [];
+  cacheStore = null;
   isEnabled = false;
-}
-
-function setStore(store) {
-  cacheStore = store;
 }
 
 // must call rewind after rendering on server (in same tick). otherwise we got a mem leak.
@@ -43,10 +53,6 @@ function rewind() {
   cachePromises = [];
   return _cachePromises;
 }
-
-const MARKUP_FOR_ROOT = DOMPropertyOperations.createMarkupForRoot();
-const REACT_ID_REPLACE_REGEX = /(data-reactid="|react-text: )[0-9]*/g;
-const REACT_CHECKSUM_REPLACE_REGEX = / data-react-checksum=".+?"/;
 
 function updateReactIds(markup) {
   let id = 1;
@@ -80,6 +86,7 @@ function replaceWithCachedValues(html) {
 }
 
 const _originalMountComponent = ReactCompositeComponent.mountComponent;
+const _originalSetState = Component.prototype.setState;
 
 ReactCompositeComponent.mountComponent = function mountComponentFromCache(
   transaction,
@@ -90,6 +97,7 @@ ReactCompositeComponent.mountComponent = function mountComponentFromCache(
   const currentProps = currentElement.props;
 
   const canCache =
+    isEnabled &&
     typeof currentElement.type !== 'string' && // not HTML element
     currentElement.type.canCache && // component was wrapped in CachedComponent
     !transaction._cached && // component's parent isn't already cached
@@ -97,21 +105,33 @@ ReactCompositeComponent.mountComponent = function mountComponentFromCache(
     typeof currentProps.children !== 'object' &&
     hostParent; // dont cache root comps
 
-  if (!isEnabled || !canCache) {
+  if (!canCache) {
     return _originalMountComponent.apply(this, _originalArgs);
   }
 
   const currentName = currentElement.type.wrappedComponentName;
 
-  const cacheKey =
-    `${currentName}:${currentElement.type.cacheKeyFn(currentProps)}`; // TODO: hash
+  const hashedKey = crypto
+    .createHash('md5')
+    .update(currentElement.type.cacheKeyFn(currentProps))
+    .digest('hex');
+
+  const cacheKey = `${currentName}:${hashedKey}`;
 
   const cachePromise = cacheStore.get(cacheKey).catch((e) => {
-    if (e) { return Promise.reject(e); }
+    if (e) {
+      return Promise.reject(e);
+    }
 
     // so we dont cache children separately
     transaction._cached = currentName;
+    Component.prototype.setState = function simplifiedSetState(partialState) {
+      this.state = Object.assign({}, this.state, partialState);
+    };
+
     const markup = _originalMountComponent.apply(this, _originalArgs);
+
+    Component.prototype.setState = _originalSetState;
     transaction._cached = undefined;
 
     cacheStore.set(cacheKey, markup);
@@ -126,8 +146,9 @@ ReactCompositeComponent.mountComponent = function mountComponentFromCache(
   return `<!-- cache:${cacheKey} -->`;
 };
 
-module.exports.enable = enable;
-module.exports.disable = disable;
+module.exports.enableCache = enableCache;
+module.exports.disableCache = disableCache;
 module.exports.setStore = setStore;
 module.exports.rewind = rewind;
 module.exports.replaceWithCachedValues = replaceWithCachedValues;
+

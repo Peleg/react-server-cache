@@ -1,6 +1,7 @@
 
 const assert = require('assert');
 const React = require('react');
+const crypto = require('crypto');
 
 // Must be required before
 const rsc = require('../');
@@ -42,7 +43,7 @@ describe('react-server-cache', () => {
 
     beforeEach(() => {
       process.env.NODE_ENV = 'production';
-      rsc.enable();
+      rsc.enableCache();
       tempMarkup = ReactDOMServer.renderToString(reactTree);
     });
 
@@ -82,7 +83,11 @@ describe('react-server-cache', () => {
 
       it('resolves with the key so it can be replaced w real markup', () => {
         return rsc.rewind()[0].then(({ cacheKey }) => {
-          assert(cacheKey === 'CachedDemoComp:{"id":"cached-1"}');
+          const hashedKey = crypto
+            .createHash('md5')
+            .update('{"id":"cached-1"}')
+            .digest('hex');
+          assert(cacheKey === `CachedDemoComp:${hashedKey}`);
         });
       });
     });
@@ -104,7 +109,7 @@ describe('react-server-cache', () => {
       it('computes the corrent checksum', () => {
         const checksumRegex = /data-react-checksum="(-?\d+)"/;
         return rsc.replaceWithCachedValues(tempMarkup).then((cachedMarkup) => {
-          rsc.disable();
+          rsc.disableCache();
           const nonCachedMarkup = ReactDOMServer.renderToString(reactTree);
 
           const [, cachedChecksum] = cachedMarkup.match(checksumRegex);

@@ -2,23 +2,13 @@ const React = require('react');
 const ExecutionEnvironment = require('exenv');
 
 module.exports.cachedComponent = (cacheKeyFn) => {
-  function wrap(WrappedComponent) {
+  return function wrap(WrappedComponent) {
     if (ExecutionEnvironment.canUseDOM) {
       return WrappedComponent;
     }
 
-    class CachedComponent extends React.Component {
-      constructor(...args) {
-        super(...args);
-        this.setState = function cachedComponentSetState(partialState) {
-          return Object.assign({}, this.state, partialState);
-        };
-      }
-
-      render() {
-        return React.createElement(WrappedComponent, this.props);
-      }
-    }
+    const CachedComponent = (props) =>
+      React.createElement(WrappedComponent, props);
 
     const wrappedComponentName =
       WrappedComponent.displayName ||
@@ -31,15 +21,5 @@ module.exports.cachedComponent = (cacheKeyFn) => {
     CachedComponent.displayName = `CachedComponent(${wrappedComponentName})`;
 
     return CachedComponent;
-  }
-
-  // no cacheKeyFn given
-  if (cacheKeyFn && typeof cacheKeyFn.type === 'function') { // react comp
-    const WrappedComp = cacheKeyFn;
-    cacheKeyFn = undefined;
-    return wrap(WrappedComp);
-  }
-
-  return wrap;
+  };
 };
-
