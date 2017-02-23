@@ -11,9 +11,6 @@ const CachedDemoComp = rsc.cachedComponent()(function CachedDemoComp(props) {
   return React.createElement('div', props, 'some random string');
 });
 
-const ELEMENTS = {
-}
-
 describe('react-server-cache', () => {
   describe('setup', () => {
     it('monkey patches ReactCompositeComponent.mountComponent', () => {
