@@ -1,9 +1,13 @@
-// TODO: ?
-delete require.cache[require.resolve('react-dom/lib/ReactCompositeComponent')];
+const assert = require('assert');
 
+assert(
+  !require.cache[require.resolve('react-dom/lib/ReactCompositeComponent')],
+  'React-server-cache must be required before ReactCompositeComponent'
+);
+
+const React = require('react');
 const ReactCompositeComponent = require('react-dom/lib/ReactCompositeComponent');
 const DOMPropertyOperations = require('react-dom/lib/DOMPropertyOperations');
-const assert = require('assert');
 const ExecutionEnvironment = require('exenv');
 const _ = require('lodash');
 
@@ -27,6 +31,10 @@ let cacheStore = {
 };
 
 module.exports.enable = function enable() {
+  assert(
+    process.env.NODE_ENV === 'production',
+    'React-Server-Cache must run in NODE_ENV production only'
+  );
   isEnabled = true;
 };
 
@@ -38,7 +46,7 @@ module.exports.disable = function disable() {
 // TODO: find a better interface for this?
 let cachePromises = [];
 module.exports.rewind = function rewind() {
-  const _cahcePromises = cachePromises;
+  const _cachePromises = cachePromises;
   cachePromises = [];
   return _cachePromises;
 };
@@ -47,59 +55,66 @@ module.exports.setStore = function setStore(store) {
   assert(typeof store.get === 'function', 'cache store must implement a `get` method');
   assert(typeof store.set === 'function', 'cache store must implement a `set` method');
   cacheStore = store;
-}
+};
 
 const MARKUP_FOR_ROOT = DOMPropertyOperations.createMarkupForRoot();
-const REACT_ID_REPLACE_REGEX = new RegExp(`(data-reactid="|react-text: )[0-9]*`, 'g');
+const REACT_ID_REPLACE_REGEX = new RegExp('(data-reactid="|react-text: )[0-9]*', 'g');
 
 function addRootMarkup(html) {
   return html.replace(/(<[^ >]*)([ >])/, (m, a, b) =>
     `${a} ${MARKUP_FOR_ROOT}${b}`
   );
-};
+}
 
 function updateReactId(html, hostContainerInfo) { // eslint-disable-line
   let id = hostContainerInfo._idCounter;
   html = html.replace(REACT_ID_REPLACE_REGEX, (m, a) => `${a}${id++}`);
   hostContainerInfo._idCounter = id;
   return html;
-};
+}
 
 const _originalMountComponent = ReactCompositeComponent.mountComponent;
 
-ReactCompositeComponent.mountComponent = function mountComponentFromCache(transaction, hostParent, hostContainerInfo) {
-  const currentCounter = hostContainerInfo._idCounter;
+ReactCompositeComponent.mountComponent = function mountComponentFromCache(
+  transaction,
+  hostParent,
+  hostContainerInfo
+) {
+  const _originalArgs = arguments;
 
   const currentElement = this._currentElement;
 
   const currentProps = currentElement.props;
 
-  const currentName =
-    currentElement.type &&
-    typeof currentElement.type !== 'string' &&
-    currentElement.type.name;
-
   const canCache =
-    currentElement.canCache &&
-    !transaction._cached &&
-    !_.isEmpty(currentProps) &&
-    typeof currentProps.children !== 'object'
+    typeof currentElement.type !== 'string' && // not HTML element
+    currentElement.type.canCache && // component was wrapped in CachedComponent
+    !transaction._cached && // component's parent isn't already cached
+    !_.isEmpty(currentProps) && // TODO: why dont we want to cache propless comps?
+    typeof currentProps.children !== 'object';
 
   if (!isEnabled || !canCache) {
-    return _originalMountComponent.apply(this, arguments);
+    return _originalMountComponent.apply(this, _originalArgs);
   }
 
-  const key = `${currentName}:${currentElement.cacheKeyFn(currentProps)}`; // TODO: hash
+  const currentName = currentElement.type.wrappedComponentName;
+
+  const key = `${currentName}:${currentElement.type.cacheKeyFn(currentProps)}`; // TODO: hash
 
   cachePromises.push(cacheStore.get(key)
     .catch((e) => {
-      transaction._cached = currentName; // so we dont cache children separately
-      hostContainerInfo._idCounter = 1; // real react-id will have to be determined when cache is fetched
+      if (e) { return Promise.reject(e); }
 
-      const html = _originalMountComponent.apply(this, arguments);
+      // so we dont cache children separately
+      transaction._cached = currentName;
+      // real react-id will have to be determined when cache is fetched
+      const currentIdCounter = hostContainerInfo._idCounter;
+      hostContainerInfo._idCounter = 1;
+
+      const html = _originalMountComponent.apply(this, _originalArgs);
 
       transaction._cached = undefined;
-      hostContainerInfo._idCounter = currentCounter;
+      hostContainerInfo._idCounter = currentIdCounter;
 
       cacheStore.set(key, html);
       return html;
@@ -114,10 +129,10 @@ ReactCompositeComponent.mountComponent = function mountComponentFromCache(transa
       }
 
       return { key, html };
-    });
+    })
   );
 
-  return `<!-- cache:${key} -->`
+  return `<!-- cache:${key} -->`;
 };
 
 function getDisplayName(WrappedComponent) {
@@ -130,20 +145,24 @@ module.exports.cachedComponent = (cacheKeyFn) => {
       return WrappedComponent;
     }
 
-    return class CachedComponent extends Component {
-      static displayName = `CachedComponent(${getDisplayName(WrappedComponent)})`;
-
-      setState = function cachedComponentSetState(partialState) {
-        return Object.assign({}, this.state, partialState);
-      };
-
-      cacheKeyFn = cacheKeyFn || JSON.stringify;
-
-      canCache = true;
+    class CachedComponent extends React.Component {
+      constructor(...args) {
+        super(...args);
+        this.setState = function cachedComponentSetState(partialState) {
+          return Object.assign({}, this.state, partialState);
+        };
+      }
 
       render() {
-        return <WrappedComponent { ...this.props } />;
+        return React.createElement(WrappedComponent, this.props);
       }
     }
+
+    CachedComponent.cacheKeyFn = cacheKeyFn || JSON.stringify;
+    CachedComponent.canCache = true;
+    CachedComponent.wrappedComponentName = getDisplayName(WrappedComponent);
+    CachedComponent.displayName = `CachedComponent(${getDisplayName(WrappedComponent)})`;
+
+    return CachedComponent;
   };
 };
