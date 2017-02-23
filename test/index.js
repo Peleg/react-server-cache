@@ -8,8 +8,23 @@ const ReactCompositeComponent = require('react-dom/lib/ReactCompositeComponent')
 const ReactDOMServer = require('react-dom/server');
 
 const CachedDemoComp = rsc.cachedComponent()(function CachedDemoComp(props) {
-  return React.createElement('div', props, 'some random string');
+  return React.createElement('div', props, [
+    React.createElement('div', {}, 'STRING A'),
+    React.createElement('div', {}, 'STRING B')
+  ]);
 });
+
+const reactTree = React.createElement('div', { id: 'not-cached-1' }, [
+  React.createElement('div', { id: 'not-cached-2' }, [
+    React.createElement('span', { id: 'not-cached-3' }),
+    React.createElement(CachedDemoComp, { id: 'cached-1' }),
+    React.createElement(CachedDemoComp, { id: 'cached-2' }),
+    React.createElement('span', { id: 'not-cached-4' })
+  ]),
+  React.createElement('div', { id: 'not-cached-5' }, [
+    React.createElement('span', { id: 'not-cached-6' })
+  ])
+]);
 
 describe('react-server-cache', () => {
   describe('setup', () => {
@@ -28,13 +43,7 @@ describe('react-server-cache', () => {
     beforeEach(() => {
       process.env.NODE_ENV = 'production';
       rsc.enable();
-      tempMarkup = ReactDOMServer.renderToString(
-        React.createElement('div', { id: 'not-cached-1' }, [
-          React.createElement('span', { id: 'not-cached-2' }),
-          React.createElement(CachedDemoComp, { id: 'cached-1' }),
-          React.createElement(CachedDemoComp, { id: 'cached-2' })
-        ])
-      );
+      tempMarkup = ReactDOMServer.renderToString(reactTree);
     });
 
     afterEach(() => {
@@ -66,21 +75,42 @@ describe('react-server-cache', () => {
       });
 
       it('resolves with the real markup', () => {
-        return rsc.rewind()[0].then(({ html }) => {
-          assert(html.includes('<div id="cached-1"'));
+        return rsc.rewind()[0].then(({ markup }) => {
+          assert(markup.includes('<div id="cached-1"'));
         });
       });
 
       it('resolves with the key so it can be replaced w real markup', () => {
-        return rsc.rewind()[0].then(({ key }) => {
-          assert(key === 'CachedDemoComp:{"id":"cached-1"}');
+        return rsc.rewind()[0].then(({ cacheKey }) => {
+          assert(cacheKey === 'CachedDemoComp:{"id":"cached-1"}');
         });
       });
     });
 
-    describe('react ids', () => {
-      it('computes the correct ids after retrieved from cache', () => {
-        return rsc.rewind()[0].then(({ html }) => {
+    describe('react comp mgmt', () => {
+      it('computes the correct react-ids after retrieved from cache', () => {
+        return rsc.replaceWithCachedValues(tempMarkup).then((finalMarkup) => {
+          const regex = /data-reactid="(\d+?)"/g;
+          let match;
+          let counter = 1;
+          while (match = regex.exec(finalMarkup)) {
+            const [, reactId] = match;
+            assert(Number(reactId) === counter);
+            counter++;
+          }
+        });
+      });
+
+      it('computes the corrent checksum', () => {
+        const checksumRegex = /data-react-checksum="(-?\d+)"/;
+        return rsc.replaceWithCachedValues(tempMarkup).then((cachedMarkup) => {
+          rsc.disable();
+          const nonCachedMarkup = ReactDOMServer.renderToString(reactTree);
+
+          const [, cachedChecksum] = cachedMarkup.match(checksumRegex);
+          const [, nonCachedChecksum] = nonCachedMarkup.match(checksumRegex);
+
+          assert(nonCachedChecksum === cachedChecksum);
         });
       });
     });
