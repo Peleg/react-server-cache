@@ -1,8 +1,9 @@
 const assert = require('assert');
 const _ = require('lodash');
 const crypto = require('crypto');
-const CacheStore = require('./stores/MemoryCacheStore');
+const CacheStore = require('./stores/CacheStore');
 const MemoryCacheStore = require('./stores/MemoryCacheStore');
+const MemcachedCacheStore = require('./stores/MemcachedCacheStore');
 const Component = require('react').Component;
 
 assert(
@@ -66,6 +67,7 @@ function updateChecksum(markup) {
 }
 
 function replaceWithCachedValues(html) {
+  console.log('REWIND')
   return Promise.all(rewind()).then((cachedValues) => {
     const cacheMap = {};
     let regex = '';
