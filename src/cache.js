@@ -67,7 +67,6 @@ function updateChecksum(markup) {
 }
 
 function replaceWithCachedValues(html) {
-  console.log('REWIND')
   return Promise.all(rewind()).then((cachedValues) => {
     const cacheMap = {};
     let regex = '';

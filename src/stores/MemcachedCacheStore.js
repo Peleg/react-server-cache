@@ -11,39 +11,90 @@ module.exports = class MemcachedCacheStore extends CacheStore {
     const location = opts.location || 'localhost:11211';
     this.memcached = new Memcached(location);
 
-    this._getsQueue = [];
-    this._isGetScheduled = false;
+    this._queuedKeys = [];
+    this._scheduledMultiGet;
   }
 
-  multiGet(key) {
-    this.memcached.getMulti(this._getsQueue, (err, data) => {
+  _get(key) {
+    return new Promise((res, rej) => {
+      this.memcached.get(key, (err, data) => {
+        if (err) {
+          rej(err);
+          return;
+        }
 
+        if (!data) {
+          rej();
+          return;
+        }
+
+        res(data);
+      });
     });
   }
 
-  get(key) {
+  _multiGet(key) {
     return new Promise((res, rej) => {
-      this._getsQueue.push(key);
-      if (!this._isGetScheduled) {
-        process.nextTick(() => {
-          this.multiGet().then((data) => {
-            if (data[key]) {
-              res(data[key]);
-              return;
-            }
-            rej();
-          }).catch(rej);
-          this._isGetScheduled = false;
-          this._getsQueue = [];
-        });
-        this._isGetScheduled = true;
+      this._queuedKeys.push(key);
+
+      if (!this._scheduledMultiGet) {
+        this._scheduledMultiGet = this._scheduleMultiGet();
       }
+
+      this._scheduledMultiGet.then((data) => {
+        if (data[key]) {
+          res(data[key]);
+          return;
+        }
+        rej();
+      }).catch(rej);
     });
   }
 
-  set(key, value) {
+  _scheduleMultiGet() {
     return new Promise((res, rej) => {
-      this.memcached.set(key, value);
+      process.nextTick(() => {
+        console.log('DOING GET')
+        this.memcached.getMulti(this._queuedKeys, (err, data) => {
+          process.nextTick(() => {
+            console.log('DOING CLEAN')
+            this._queuedKeys = [];
+            this._scheduledMultiGet = null;
+          });
+
+          if (err) {
+            rej(err);
+            return;
+          }
+
+          res(data);
+        });
+      });
+    });
+  }
+
+  /**
+   * if @param force is set to true, we trigger an immediate get. otherwise, we
+   * queue the keys so they can be retrieved in next tick
+   */
+  get(key, force = false) {
+    return new Promise((res, rej) => {
+      if (force) {
+        return this._get(key).then(res, rej);
+      }
+      return this._multiGet(key).then(res, rej);
+    });
+  }
+
+  set(key, value, TTLInSec = 10 * 60) {
+    return new Promise((res, rej) => {
+      this.memcached.set(key, value, TTLInSec, (err) => {
+        if (err) {
+          rej(err);
+          return;
+        }
+        res();
+      });
     });
   }
 };
