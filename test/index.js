@@ -5,7 +5,7 @@ const crypto = require('crypto');
 
 // Must be required before
 const rsc = require('../');
-const MemcachedStore = require('../src/stores/MemcachedCacheStore');
+const MemcachedStore = require('../lib/stores/MemcachedCacheStore');
 const ReactCompositeComponent = require('react-dom/lib/ReactCompositeComponent');
 const ReactDOMServer = require('react-dom/server');
 
