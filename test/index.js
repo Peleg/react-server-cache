@@ -5,29 +5,43 @@ const crypto = require('crypto');
 
 // Must be required before
 const rsc = require('../');
+const MemcachedStore = require('../src/stores/MemcachedCacheStore');
 const ReactCompositeComponent = require('react-dom/lib/ReactCompositeComponent');
 const ReactDOMServer = require('react-dom/server');
 
 const CachedDemoComp = rsc.cachedComponent()(function CachedDemoComp(props) {
   return React.createElement('div', props, [
-    React.createElement('div', {}, 'STRING A'),
-    React.createElement('div', {}, 'STRING B')
+    React.createElement('div', { key: 1 }, 'STRING A'),
+    React.createElement('div', { key: 2 }, 'STRING B')
   ]);
 });
 
 const reactTree = React.createElement('div', { id: 'not-cached-1' }, [
-  React.createElement('div', { id: 'not-cached-2' }, [
-    React.createElement('span', { id: 'not-cached-3' }),
-    React.createElement(CachedDemoComp, { id: 'cached-1' }),
-    React.createElement(CachedDemoComp, { id: 'cached-2' }),
-    React.createElement('span', { id: 'not-cached-4' })
+  React.createElement('div', { key: 1, id: 'not-cached-2' }, [
+    React.createElement('span', { key: 1, id: 'not-cached-3' }),
+    React.createElement(CachedDemoComp, { key: 2, id: 'cached-1' }),
+    React.createElement(CachedDemoComp, { key: 3, id: 'not-cached-4' }, [
+      React.createElement(CachedDemoComp, { key: 1, id: 'not-cached-5' }),
+    ]),
+    React.createElement('span', { key: 4, id: 'not-cached-6' })
   ]),
-  React.createElement('div', { id: 'not-cached-5' }, [
-    React.createElement('span', { id: 'not-cached-6' })
-  ])
+  React.createElement('div', { key: 2, id: 'not-cached-7' }, [
+    React.createElement('span', { key: 1, id: 'not-cached-8' })
+  ]),
+  React.createElement(CachedDemoComp, { key: 3, id: 'cached-3' }),
 ]);
 
 describe('react-server-cache', () => {
+  before(() => {
+    process.env._NODE_ENV = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+  });
+
+  after(() => {
+    process.env.NODE_ENV = process.env._NODE_ENV;
+    delete process.env._NODE_ENV;
+  });
+
   describe('setup', () => {
     it('monkey patches ReactCompositeComponent.mountComponent', () => {
       assert(ReactCompositeComponent.mountComponent.name === 'mountComponentFromCache');
@@ -42,13 +56,13 @@ describe('react-server-cache', () => {
     let tempMarkup;
 
     beforeEach(() => {
-      process.env.NODE_ENV = 'production';
       rsc.enableCache();
       tempMarkup = ReactDOMServer.renderToString(reactTree);
     });
 
     afterEach(() => {
       rsc.rewind();
+      rsc.disableCache();
     });
 
     describe('rendering the tree', () => {
@@ -116,6 +130,30 @@ describe('react-server-cache', () => {
           const [, nonCachedChecksum] = nonCachedMarkup.match(checksumRegex);
 
           assert(nonCachedChecksum === cachedChecksum);
+        });
+      });
+    });
+
+    describe('cache stores', () => {
+      describe('memcached', () => {
+        let store;
+
+        beforeEach(() => {
+          store = new MemcachedStore();
+          store.memcached.getMulti = function getMultiSpy(keys, cb) {
+            store.memcached.getMulti._calls.push(keys);
+            cb(undefined, {});
+          };
+          store.memcached.getMulti._calls = [];
+          rsc.setStore(store);
+        });
+
+        it('uses one multiget for all cache fetches', () => {
+          tempMarkup = ReactDOMServer.renderToString(reactTree);
+          return rsc.replaceWithCachedValues(tempMarkup).then((cachedMarkup) => {
+            assert(store.memcached.getMulti._calls.length === 1);
+            assert(Object.keys(store.memcached.getMulti._calls[0]).length === 2);
+          });
         });
       });
     });

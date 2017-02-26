@@ -54,10 +54,8 @@ module.exports = class MemcachedCacheStore extends CacheStore {
   _scheduleMultiGet() {
     return new Promise((res, rej) => {
       process.nextTick(() => {
-        console.log('DOING GET')
         this.memcached.getMulti(this._queuedKeys, (err, data) => {
           process.nextTick(() => {
-            console.log('DOING CLEAN')
             this._queuedKeys = [];
             this._scheduledMultiGet = null;
           });
