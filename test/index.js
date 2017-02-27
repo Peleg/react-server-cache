@@ -1,7 +1,7 @@
 
 const assert = require('assert');
 const React = require('react');
-const crypto = require('crypto');
+const farmhash = require('farmhash');
 
 // Must be required before
 const rsc = require('../');
@@ -97,10 +97,7 @@ describe('react-server-cache', () => {
 
       it('resolves with the key so it can be replaced w real markup', () => {
         return rsc.rewind()[0].then(({ cacheKey }) => {
-          const hashedKey = crypto
-            .createHash('md5')
-            .update('{"id":"cached-1"}')
-            .digest('hex');
+          const hashedKey = farmhash.hash64('{"id":"cached-1"}');
           assert(cacheKey === `CachedDemoComp:${hashedKey}`);
         });
       });
