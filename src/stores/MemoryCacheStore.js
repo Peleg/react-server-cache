@@ -16,7 +16,7 @@ module.exports = class MemoryCacheStore extends CacheStore {
 
   set(key, value) {
     return new Promise((res, rej) => {
-      this._store.set(key, value)
+      this._store.set(key, value);
       res(value);
     });
   }
