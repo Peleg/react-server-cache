@@ -1,6 +1,6 @@
 {
   "name": "react-server-cache",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "description": "cache react components on the server",
   "main": "index.js",
   "scripts": {
