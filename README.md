@@ -52,15 +52,17 @@ export default Product;
 ```javascript
 /* server.js */
 
-import { replaceWithCachedValues, MemcachedCacheStore, enableCache } from 'react-server-cache';
+import { MemcachedCacheStore, createServerCache } from 'react-server-cache';
 import { renderToString } from 'react-dom/server';
 import Product from './Components/Product.jsx';
 
-enableCache(new MemcachedCacheStore({
+const cacheStore = new MemcachedCacheStore({
   location: 'localhost:11211'
-}));
+});
 
 app.get('/products/:id', (req, res) => {
+  const replaceWithCachedValues = createServerCache(cacheStore);
+
   const tempMarkup = renderToString(<Product id={ req.params.id }>);
 
   replaceWithCachedValues(tempMarkup).then((finalMarkup) => {
